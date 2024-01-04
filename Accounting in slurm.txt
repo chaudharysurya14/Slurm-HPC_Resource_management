@@ -1,0 +1,111 @@
+*************************************
+	Accounting in slurm
+*************************************
+
+On master
+_________
+
+# cp /etc/slurm/slurmdbd.conf.example /etc/slurm/slurmdbd.conf
+
+# vi /etc/slurm/slurmdbd.conf
+
+	check for the below entries and should also be uncommented in the last of this file      also Note that line should be commented : #StoragePass=password
+StorageType=accounting_storage/mysql
+StorageHost=localhost
+StorageUser=slurm
+StorageLoc=slurm_acct_db
+
+: Save and Exit
+
+# chown slurm:slurm /etc/slurm/slurmdbd.conf
+
+# mkdir -p /var/log/slurm
+
+# touch  /var/log/slurm/slurmdbd.log
+
+# systemctl status slurmdbd
+
+# systemctl start slurmdbd
+
+# systemctl enable slurmdbd
+
+# systemctl status slurmdbd
+
+# vi /etc/slurm/slurm.conf
+
+ 	check for the below entries and should also be uncommented
+
+AccountingStorageType=accounting_storage/slurmdbd
+AccountingStorageHost=localhost
+AccountingStorageUser=slurm
+
+: Save and Exit
+
+# systemctl restart slurmdbd
+
+# systemctl restart slurmctld       - on master
+
+# systemctl start mariadb
+
+# systemctl status mariadb
+
+Creation of Database
+---------------------
+# mysql
+
+MariaDB [(none)]> create user 'slurm'@'localhost';
+
+MariaDB [(none)]> grant all on slurm_acct_db.* TO 'slurm'@'localhost';
+
+MariaDB [(none)]> show databases;
+
+MariaDB [(none)]> exit
+
+# systemctl restart slurmctld
+
+# systemctl restart mariadb
+
+Using Account Manager
+---------------------
+
+# sacctmgr
+
+sacctmgr: show cluster
+sacctmgr: show user
+
+sacctmgr: add cluster <Cluster-name>							-> If there is a problem in adding the Cluster refresh the slurmdbd in 
+sacctmgr: add account <Account-name>
+sacctmgr: add user <User-name> account=<Account-name>                         -> User should be a Linux user also
+
+sacctmgr: create  qos <qos-name> maxwall=2-00:00:00
+sacctmgr: show qos
+
+sacctmgr: create  qos <qos-name> priority=1000
+sacctmgr: show qos
+
+sacctmgr: remove user username account=<account-name>
+
+
+ADD qos to user
+---------------
+sacctmgr: modify user <User-name> set qos+=<qos-name>
+
+sacctmgr: add qos <qos-name> <username>
+
+sacctmgr: remove qos <qos-name>
+
+show assoc format=cluster,user,qos
+
+
+Reservation
+-----------
+
+# scontrol create reservation=my_reservation starttime=2023-02-02T01:00:00 endtime=2023-02-02T01:05:00 users=<system_created_user> nodes=c[1-2]
+
+# sbatch --reservation=my_reservation -N4 job.sh
+
+# scontrol show reservation
+
+# scontrol delete reservation <reservation-name>
+
+

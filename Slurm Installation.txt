@@ -1,0 +1,312 @@
+***************************************
+	  Slurm Installation
+_______________________________________
+
+3 Vms -> 1 master , 2 compute nodes
+{Note: In Vmware ESXI (1 core = 1 CPU)and Virtualized Hardware Configuration taken is 8 CPUs and cores per socket 4 therefore number of Socket = 2}
+
+OS : CentOS 7 Installation type : minimal
+----------------------------------
+
+Pre-requisite -> Stop and disable firewall daemon and stop selinux 
+  
+On master
+----------
+Enter the ip and hostname of every vm involved in /etc/hosts of master and copy it to every node
+
+# vi /etc/hosts
+
+# scp /etc/hosts root@c1:/etc/hosts
+# scp /etc/hosts root@c2:/etc/hosts
+
+
+
+# Install Packages for Pre-requisite of Cluster Formation
+_________________________________________________________
+
+On c1 and c2 (ensure also on master)
+------------------------------------------
+# yum install rsync -y
+
+# yum install openssh* -y
+
+# yum install nfs-utils* -y
+
+# yum install chrony -y 
+
+# yum install wget -y
+
+On master (perform passwordless ssh)
+------------------------------------
+# ssh-keygen
+# ssh-copy-id root@c1
+# ssh-copy-id root@c2
+
+----------------------------------------------------
+On master (user synchronization to c1 and c2 )
+----------------------------------------------------
+
+scp /etc/passwd root@c1:/etc/passwd
+scp /etc/shadow root@c1:/etc/shadow
+scp /etc/group root@c1:/etc/group
+
+scp /etc/passwd root@c2:/etc/passwd
+scp /etc/shadow root@c2:/etc/shadow
+scp /etc/group root@c2:/etc/group
+
+on master (nfs sharing of directory)
+------------------------------------
+
+# cd ~
+# mkdir home
+
+# vi /etc/exports
+	-> edit >> /root/home/ *(rw,sync,no_root_squash)
+		Save file
+
+# systemctl start nfs-server
+
+# systemctl enable nfs-server
+
+# systemctl status nfs-server
+
+# exportfs -arv 
+
+on nodes  (mount the shared directory)
+--------------------------------------
+# cd ~
+# mkdir home
+
+# showmount -e master
+# mount -t nfs master:/root/home /root/home
+
+# df -Th
+
+# vi /etc/fstab
+	
+	-> Add line 192.168.88.161:/root/home	/root/home	nfs	defaults	0 0
+
+		Save and Exit
+
+Time Synchronization ( Using Chrony )
+-------------------------------------
+on master 
+---------
+# vi /etc/chrony.conf
+	add >> server 	192.168.88.161	iburst
+			comment all server list already there
+		 allow 192.168.88.0/24
+		 local stratum 10 (uncomment this line)
+		 Save and Exit
+
+# systemctl status chronyd
+# systemctl stop chronyd
+# systemctl start chronyd
+
+on nodes
+--------
+
+# vi /etc/chrony.conf
+	add >> server 	192.168.88.161	iburst
+			comment all server list already there
+		Save and Exit
+# systemctl status chronyd
+# systemctl stop chronyd
+# systemctl start chronyd
+
+# yum install ntpdate -y
+# ntpdate -q 192.168.88.161
+
+****************************************************************
+
+Go to browser
+-------------
+Search Slurm Download follow the link shedmd.com
+
+https://www.schedmd.com/downloads.php
+
+On master 
+---------
+# cd ~/home                              -> shared home directory
+
+# wget https://download.schedmd.com/slurm/slurm-22.05.8.tar.bz2
+
+# cd ..
+
+# yum install mariadb-server mariadb-devel -y                  (Note : Also do this command on all nodes)
+
+# yum install epel-release -y						   (Note : Also do this command on all nodes)
+
+# yum install munge munge-libs munge-devel -y			   (Note : Also do this command on all nodes)
+
+# yum install rpm-build -y 						   (Note : Also do this command on all nodes)
+
+# cd ~/home
+
+# rpmbuild -ta slurm-22.05.8.tar.bz2
+
+(Note: Install all dependency errors)
+
+	 yum install python3 readline-devel perl-ExtUtils-Install pam-devel gcc -y
+
+# rpmbuild -ta slurm-22.05.8.tar.bz2			( Note: Run after installing dependencies )
+
+# /usr/sbin/create-munge-key -r
+
+# ll /etc/munge
+
+# chown munge:munge -R /etc/munge/					
+
+# ll /etc/munge
+
+# chmod 400 /etc/munge/munge.key
+
+# scp /etc/munge/munge.key root@c1:/etc/munge/
+
+# scp /etc/munge/munge.key root@c2:/etc/munge/
+
+Note:
+----
+Change the Ownership of the key to munge on compute nodes using chown command
+
+Also change the mod of munge.key file to 400
+
+# ll /etc/munge
+
+# chown munge:munge -R /etc/munge				
+
+# ll /etc/munge
+
+# chmod 400 /etc/munge/munge.key
+
+# systemctl start munge 					(Note: Run this command on all nodes and master )
+
+# systemctl status munge					(Note: Run this command on all nodes and master )
+
+# systemctl enable munge
+
+# cd /root/rpmbuild/RPMS/x86_64/
+
+# yum install slurm* -y
+
+# scp slurm-22.05.8-1.el7.x86_64.rpm /root/home/
+# scp slurm-contribs-22.05.8-1.el7.x86_64.rpm /root/home/
+# scp slurm-devel-22.05.8-1.el7.x86_64.rpm /root/home/
+# scp slurm-example-configs-22.05.8-1.el7.x86_64.rpm /root/home/
+# scp slurm-libpmi-22.05.8-1.el7.x86_64.rpm /root/home/
+# scp slurm-openlava-22.05.8-1.el7.x86_64.rpm /root/home/
+# scp slurm-pam_slurm-22.05.8-1.el7.x86_64.rpm /root/home/
+# scp slurm-perlapi-22.05.8-1.el7.x86_64.rpm /root/home/
+# scp slurm-slurmd-22.05.8-1.el7.x86_64.rpm /root/home/
+# scp slurm-torque-22.05.8-1.el7.x86_64.rpm /root/home/
+
+**********************************************************************
+On nodes
+--------
+# cd /root/home
+
+# yum install slurm* -y
+
+on all nodes and master
+------------------------
+
+# export SLURMUSER=1500
+# groupadd -g $SLURMUSER slurm
+# useradd  -m -c "SLURM workload manager" -d /var/lib/slurm -u $SLURMUSER -g slurm  -s /bin/bash slurm
+
+On master
+---------
+
+# cp /etc/slurm/slurm.conf.example /etc/slurm/slurm.conf 
+
+# vi /etc/slurm/slurm.conf
+
+	>> edit >>  ClusterName=pearl
+			SlurmctldHost=master
+			StateSaveLocation=/var/share/slurm/ctld
+			SlurmdSpoolDir=/var/share/slurm/d
+
+			Save and Exit
+
+# mkdir -p /var/share/slurm/ctld
+
+# mkdir -p /var/share/slurm/d
+
+# touch /var/log/slurmctld.log
+
+# chown -R slurm:slurm /var/share/slurm
+
+# ll /var/share/slurm
+
+On both nodes
+-------------
+
+# mkdir -p /var/share/slurm/d
+
+# touch /var/log/slurmd.log
+
+# chown -R slurm:slurm /var/share/slurm
+
+# ll /var/share/slurm
+
+# slurmd -C
+
+Add the output of above command from both the compute nodes and add in the conf file of slurm at the last (in master) just before the partition name line
+
+>> Add >> Output >> NodeName=c1 CPUs=2 Boards=1 SocketsPerBoard=1 CoresPerSocket=2 ThreadsPerCore=1 RealMemory=7802
+			  NodeName=c2 CPUs=2 Boards=1 SocketsPerBoard=1 CoresPerSocket=2 ThreadsPerCore=1 RealMemory=7802
+
+# vi /etc/slurm/slurm.conf
+
+    >> Add lines copied as directed
+		SAVE and Exit
+
+On Master
+---------
+# scp /etc/slurm/slurm.conf root@c1:/etc/slurm
+# scp /etc/slurm/slurm.conf root@c2:/etc/slurm
+
+# cp /etc/slurm/cgroup.conf.example /etc/slurm/cgroup.conf
+# scp /etc/slurm/cgroup.conf root@c1:/etc/slurm
+# scp /etc/slurm/cgroup.conf root@c2:/etc/slurm
+
+# systemctl start slurmctld
+# systemctl status slurmctld
+# systemctl enable slurmctld
+
+On Compute Node
+--------------
+# systemctl start slurmd
+# systemctl status slurmd
+# systemctl enable slurmd
+
+Then Check sinfo command on master
+----------------------------------
+# sinfo
+
+Submit the Job
+--------------
+# srun -N1 /bin/hostname
+
+# srun -N1 
+
+Changing state of node
+----------------------
+# scontrol update nodename=c1 state=idle
+
+Some More Commands
+------------------
+
+# squeue
+
+# scancel <JOB-ID>
+
+# scontrol show node
+
+# scontrol show part
+
+# scontrol show <JOB-ID>
+
+# scontrol show job<space>job.no
+
+# sbatch script.sh

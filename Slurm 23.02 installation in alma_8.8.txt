@@ -1,0 +1,331 @@
+***** SLURM Installation in alma 8.8 ***** 
+------------------------------------------
+Setting up 3 VMs ->  1 Master , 2 Compute nodes (cn001,cn002)
+-------------------------------------------------------------
+
+On All Nodes or VMs 
+-------------------
+
+# dnf update --exclude=kernel*     -> This will update the linux packages but excludes the kernel related package
+
+# Disable selinux by changing SELINUX value in file  
+	-> vi /etc/selinux/config
+	     
+		SELINUX=disabled 
+
+# systemctl stop firewalld
+
+# systemctl disable firewalld
+
+Set-hostname by following command
+
+# hostnamectl set-hostname master 
+or 
+# vi /etc/hostname -> Change name in this file 
+
+
+# init 6 -> Reboot the system for taking changes into effect 
+
+
+----------------------------------------------------------------------
+
+On master
+---------
+
+# vi /etc/hosts -> add the ips' and hostname for knowing hosts 
+
+copy this hosts file to other nodes using scp command
+
+# scp /etc/hosts <ip_of_destination_node>:/etc/hosts
+
+-> check the connectivity of master with the compute nodes using ping command 
+
+# ping <hostname>
+
+Password-less SSH
+------------------
+
+# ssh-keygen
+# ssh-copy-id root@cn001        -> This command will ask for the 
+# ssh-copy-id root@cn002
+
+-> Try and test the passwordless ssh conncetion from master to the compute nodes
+
+Time Synchronization
+----------------------
+For synchronizing the time of the cluster we will using chrony package 
+
+# dnf install chrony -y    -> on all nodes  (Manual Cluster)
+
+# vi /etc/chrony.conf
+
+-> make edits on master
+    Add the line -> server 172.10.2.2 iburst
+    Uncomment the lines -> allow 172.10.2.0/24
+                        -> local stratum 10
+
+-> make edits on compute nodes 
+    Add the line -> server 172.10.2.2 iburst
+
+# systemctl restart chronyd
+
+NFS For File-sharing
+--------------------
+
+# dnf install nfs-utils* -y    -> on all nodes
+
+# vi /etc/exports
+
+-> add line >> /home/ *(rw,sync,no_root_squash)
+
+# systemctl start nfs-server
+
+# exportfs -arv
+
+
+on nodes 
+--------
+
+# showmount -e master
+
+# mount -t nfs master:/home /home
+
+# vi /etc/fstab
+	Add this line 
+		>> master:/home   /home   nfs    defaults   0 0
+
+-> for persistence of NFS 
+
+-----------------------------------------------------------------------
+
+Slurm Installation (SLURM Latest LTS version 23.02)
+-----------------------------------------------------------------------
+
+On master
+---------
+
+# cd ~/Downloads
+
+# wget https://download.schedmd.com/slurm/slurm-23.02.6.tar.bz2
+
+# dnf install mariadb-server mariadb-devel -y
+
+# dnf install epel-release -y       	-> Note: Also do this on all nodes 
+
+# /usr/bin/crb enable			-> Note: Also do this on all nodes
+
+-> Output : 
+Enabling CRB repo
+CRB repo is enabled and named: powertools
+
+# dnf install munge munge-libs munge-devel -y      -> Note: Also do this on all nodes
+
+# dnf install rpm-build -y
+
+# dnf install readline-devel perl-ExtUtils-Install pam-devel gcc -y                   -> These are the dependencies required for building rpm
+
+# cd ~/Downloads
+
+# rpmbuild -ta slurm-23.02.6.tar.bz2                                                  -> ( Note: Run after installing dependencies )
+
+After this operation slurm rpms will be created which we can list down using following command
+
+# ll /root/rpmbuild/RPMS/x86_64 
+
+
+Munge Key creation (on master)
+-------------------------------
+
+# /usr/sbin/create-munge-key -r       -> Using this command munge key will be created
+
+# ll /etc/munge
+
+# chown -R munge. /etc/munge/
+
+# chmod 400 /etc/munge/munge.key
+
+Copy the munge key to the compute nodes using the scp command
+
+# scp -rv /etc/munge/munge.key cn001:/etc/munge
+
+# scp -rv /etc/munge/munge.key cn002:/etc/munge
+
+
+Note : Also change the ownership of /etc/munge to munge user in compute nodes as well and change mod of the munge.key to 400 for user read only using the same commands as done in master node
+
+Then start the service of munge on master as well as on every node using the following command 
+
+# systemctl start munge
+
+# systemctl status munge
+
+# systemctl enable munge
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+On master  >> Install all the slurm rpms from the directory ~/rpmbuild/RPMS/x86_64 just leave the slurmd rpm because we don't want slurmd on master node
+
+On Compute nodes >> Install all the slurm rpms from the directory ~/rpmbuild/RPMS/x86_64 leave the slurmctld and slurmdbd rpms as they are to be installed on master node
+
+Note : Compute node may require following packages which will be downloaded as dependencies  >>
+                                mariadb-connector-c-config-3.1.11-2.el8_3.noarch
+                                mariadb-connector-c-3.1.11-2.el8_3.x86_64
+
+# yum install slurm* -y  	>> common command for all nodes
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Adding SLURM user on all nodes 
+------------------------------
+
+On master
+---------
+
+# export SLURMUSER=1500
+
+# groupadd -g $SLURMUSER slurm
+
+# useradd  -m -c "SLURM workload manager" -d /var/lib/slurm -u $SLURMUSER -g slurm  -s /bin/bash slurm
+
+>> Copy these three files using scp command 
+
+# scp -rv /etc/passwd cn001:/etc/passwd
+
+# scp -rv /etc/shadow cn001:/etc/shadow
+
+# scp -rv /etc/group cn001:/etc/group
+
+# scp -rv /etc/passwd cn002:/etc/passwd
+
+# scp -rv /etc/shadow cn002:/etc/shadow
+
+# scp -rv /etc/group cn002:/etc/group
+
+--------------------------------------------------------------
+
+on Master
+---------
+
+# cp /etc/slurm/slurm.conf.example /etc/slurm/slurm.conf
+
+# cp /etc/slurm/cgroup.conf.example /etc/slurm/cgroup.conf 
+
+# vi /etc/slurm/slurm.conf
+
+	>> edit >>      ClusterName=PARAM Himalaya
+			SlurmctldHost=master
+			StateSaveLocation=/var/share/slurm/ctld
+			SlurmdSpoolDir=/var/share/slurm/d
+
+			Save and Exit
+
+# mkdir -p /var/share/slurm/ctld
+
+# mkdir -p /var/share/slurm/d
+
+# chown -R slurm:slurm /var/share/slurm
+
+# ll /var/share/slurm
+
+# touch /var/log/slurmctld.log
+
+On Compute nodes
+----------------
+
+# mkdir -p /var/share/slurm/d
+
+# chown -R slurm:slurm /var/share/slurm
+
+# ll /var/share/slurm
+
+# touch /var/log/slurmd.log
+
+# slurmd -C
+
+Add the output of above command from both the compute nodes and add in the conf file of slurm at the last (in master) just before the partition name line
+
+>> Add >> Output >>       NodeName=cn001 CPUs=4 Boards=1 SocketsPerBoard=4 CoresPerSocket=1 ThreadsPerCore=1 RealMemory=7696
+			  NodeName=cn002 CPUs=4 Boards=1 SocketsPerBoard=4 CoresPerSocket=1 ThreadsPerCore=1 RealMemory=7696
+
+# vi /etc/slurm/slurm.conf
+
+    >> Add lines copied as directed
+		SAVE and Exit
+
+
+---------------------------------------------------------------------
+Copying the Slurm configuration files on compute nodes of the cluster
+---------------------------------------------------------------------
+
+On master
+--------
+
+# scp /etc/slurm/slurm.conf root@cn001:/etc/slurm
+
+# scp /etc/slurm/slurm.conf root@cn002:/etc/slurm
+
+# scp /etc/slurm/cgroup.conf root@cn001:/etc/slurm
+
+# scp /etc/slurm/cgroup.conf root@cn002:/etc/slurm
+
+# systemctl start slurmctld
+
+# systemctl status slurmctld
+
+# systemctl enable slurmctld
+
+
+On Compute nodes
+----------------
+# systemctl start slurmd
+
+# systemctl status slurmd
+
+# systemctl enable slurmd
+
+-----------------------------------------------------------------------------------------------------------------------------
+
+Now we can check sinfo command from any node it wil show the cluster nodes status and other information regarding partitions
+
+# sinfo
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	
+
+
+
+
+
+
+
+
